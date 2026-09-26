@@ -45,3 +45,9 @@ export type Application = {
   created_at: string
   tuitions?: Tuition
 }
+
+export type Admin = {
+  id: string
+  email: string
+  created_at: string
+}

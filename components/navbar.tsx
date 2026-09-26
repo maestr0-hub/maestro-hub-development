@@ -43,6 +43,7 @@ export function Navbar() {
           {navLink('/', 'Tuition Board')}
           {navLink('/request', 'Request a Tutor')}
           {navLink('/admin', 'Admin')}
+          {navLink('/admin-login', 'Admin Login')}
           {user && navLink('/dashboard', 'Dashboard')}
         </nav>
 
@@ -83,6 +84,7 @@ export function Navbar() {
             {navLink('/', 'Tuition Board')}
             {navLink('/request', 'Request a Tutor')}
             {navLink('/admin', 'Admin')}
+            {navLink('/admin-login', 'Admin Login')}
             {user && navLink('/dashboard', 'Dashboard')}
             <div className="flex gap-2 pt-2">
               {user ? (

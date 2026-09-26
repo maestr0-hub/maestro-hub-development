@@ -1,18 +1,22 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/components/auth-provider'
 import { Button } from '@/components/ui/button'
-import type { GuardianRequest, Tuition } from '@/lib/types'
+import type { GuardianRequest, Tuition, Admin } from '@/lib/types'
 
 export default function AdminPage() {
   const { user, loading } = useAuth()
+  const router = useRouter()
   const [requests, setRequests] = useState<GuardianRequest[]>([])
   const [tuitions, setTuitions] = useState<Tuition[]>([])
   const [loadingData, setLoadingData] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminChecked, setAdminChecked] = useState(false)
 
   const loadData = useCallback(async () => {
     const supabase = createClient()
@@ -37,8 +41,30 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    if (loading) return
+    if (!user) {
+      setAdminChecked(true)
+      return
+    }
+    const supabase = createClient()
+    supabase
+      .from('admins')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data, error: adminError }) => {
+        if (adminError) {
+          setError(adminError.message)
+        }
+        setIsAdmin(!!data)
+        setAdminChecked(true)
+      })
+  }, [user, loading])
+
+  useEffect(() => {
+    if (isAdmin) loadData()
+    else if (adminChecked) setLoadingData(false)
+  }, [isAdmin, adminChecked, loadData])
 
   async function handleApprove(req: GuardianRequest) {
     setActionLoading(req.id)
@@ -124,7 +150,38 @@ export default function AdminPage() {
     setActionLoading(null)
   }
 
-  if (loading || loadingData) {
+  async function handleAddTuition(tuitionData: {
+    title: string
+    subject: string
+    level: string
+    details: string
+    budget: string
+  }) {
+    setError(null)
+    const supabase = createClient()
+    const { data, error: insertError } = await supabase
+      .from('tuitions')
+      .insert({
+        title: tuitionData.title,
+        subject: tuitionData.subject,
+        level: tuitionData.level || null,
+        details: tuitionData.details || null,
+        budget: tuitionData.budget || null,
+        status: 'open',
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      setError(insertError.message)
+      return false
+    }
+
+    setTuitions((prev) => [data as Tuition, ...prev])
+    return true
+  }
+
+  if (loading || !adminChecked) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-12">
         <div className="animate-pulse space-y-4">
@@ -135,16 +192,16 @@ export default function AdminPage() {
     )
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return (
       <div className="mx-auto max-w-md px-4 py-12 text-center">
         <h1 className="mb-4 text-2xl font-bold tracking-tight">Admin Access Required</h1>
         <p className="mb-6 text-muted-foreground">
-          Please log in to access the admin panel.
+          {user
+            ? 'Your account does not have admin privileges.'
+            : 'Please sign in with an admin account to access this panel.'}
         </p>
-        <a href="/login">
-          <Button>Log In</Button>
-        </a>
+        <Button onClick={() => router.push('/admin-login')}>Admin Login</Button>
       </div>
     )
   }
@@ -162,6 +219,10 @@ export default function AdminPage() {
           {error}
         </div>
       )}
+
+      <div className="mb-10">
+        <AddTuitionForm onAdd={handleAddTuition} />
+      </div>
 
       <div className="mb-10">
         <h2 className="mb-4 text-lg font-semibold">
@@ -244,7 +305,7 @@ export default function AdminPage() {
         </h2>
         {openTuitions.length === 0 ? (
           <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
-            No open tuitions. Approve a request above to create one.
+            No open tuitions. Approve a request above or add one manually.
           </p>
         ) : (
           <div className="space-y-3">
@@ -307,6 +368,120 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function AddTuitionForm({
+  onAdd,
+}: {
+  onAdd: (data: {
+    title: string
+    subject: string
+    level: string
+    details: string
+    budget: string
+  }) => Promise<boolean>
+}) {
+  const [title, setTitle] = useState('')
+  const [subject, setSubject] = useState('')
+  const [level, setLevel] = useState('')
+  const [details, setDetails] = useState('')
+  const [budget, setBudget] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    const success = await onAdd({ title, subject, level, details, budget })
+    if (success) {
+      setTitle('')
+      setSubject('')
+      setLevel('')
+      setDetails('')
+      setBudget('')
+      setShowForm(false)
+    }
+    setSubmitting(false)
+  }
+
+  if (!showForm) {
+    return (
+      <div>
+        <h2 className="mb-4 text-lg font-semibold">Post a Tuition</h2>
+        <Button onClick={() => setShowForm(true)}>Add Tuition</Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h2 className="mb-4 text-lg font-semibold">Add Tuition</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Title *</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            placeholder="Math tutoring for high school student"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Subject *</label>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              required
+              placeholder="Math"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Level</label>
+            <input
+              type="text"
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              placeholder="High School"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Details</label>
+          <textarea
+            value={details}
+            onChange={(e) => setDetails(e.target.value)}
+            rows={3}
+            placeholder="Describe the tuition opportunity..."
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Budget</label>
+          <input
+            type="text"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            placeholder="$30/hr or Negotiable"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Posting...' : 'Post Tuition'}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+            Cancel
+          </Button>
+        </div>
+      </form>
     </div>
   )
 }
